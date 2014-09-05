@@ -1,0 +1,21 @@
+{
+    "name": "BaristaLabs.SkraprJS.Workers.WebSkrapr",
+    "version": "0.0.0",
+    "description": "BaristaLabs.SkraprJS.Workers.WebSkrapr",
+    "main": "server.js",
+    "author": {
+        "name": "Sleepyhead",
+        "email": ""
+    },
+    "dependencies": {
+        "phantomjs": "*",
+        "casperjs": "*",
+        "phantom-cluster": "*",
+        "cradle": "*",
+        "aws-sdk": "*",
+        "async": "*",
+        "jquery": "*",
+        "underscore": "*",
+        "URIjs": "*"
+    }
+}
