@@ -167,7 +167,7 @@ async.whilst(
         var skraprJson = JSON.stringify(skrapr, null, 4);
         fs.writeFileSync(skraprConfig.inputPath, skraprJson);
 
-        //Invoke phantomjs. 
+        //Invoke PhantomJS.
         invokePhantomJS(function() {
             console.log("Waiting...");
             setTimeout(callback, 5000);
@@ -176,5 +176,6 @@ async.whilst(
     function (err) {
         //Shutdown.
         cleanupSkraprFiles();
+        console.log(err);
     }
 );
