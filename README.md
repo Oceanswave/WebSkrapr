@@ -1,3 +1,3 @@
-﻿# BaristaLabs.SkraprJS.Workers.WebSkrapr
+﻿# BaristaLabs WebSkrapr
 
 
