@@ -73,8 +73,8 @@ return result; \
 //    authenticators: [
 //        {
 //            type: "forms",
-//            username: "Sleepyhead",
-//            password: "ode2bach",
+//            username: "xxxxxxxxxxxx",
+//            password: "xxxxxxxxxxxx",
 //            isAuthenticated: "function() {\
 //                return !!!jQuery('#navbar_loginform').length; \
 //            }",
@@ -96,17 +96,8 @@ return result; \
 
 var cleanupSkraprFiles = function () {
     //Remove files.
-    if (fs.existsSync(skraprConfig.dataPath))
-        fs.unlinkSync(skraprConfig.dataPath);
-    
-    if (fs.existsSync(skraprConfig.linksPath))
-        fs.unlinkSync(skraprConfig.linksPath);
-    
-    if (fs.existsSync(skraprConfig.logPath))
-        fs.unlinkSync(skraprConfig.logPath);
-
-    if (fs.existsSync(skraprConfig.errorPath))
-        fs.unlinkSync(skraprConfig.errorPath);
+    if (fs.existsSync(skraprConfig.outputPath))
+        fs.unlinkSync(skraprConfig.outputPath);
 };
 
 AWS.config.region = 'us-east-1';
@@ -126,17 +117,18 @@ var invokePhantomJS = function (callback) {
         "--max-disk-cache-size=10000",
         path.join(__dirname, '/scripts/skrapr-script.js')
     ];
-    
-    console.log("starting phantomjs...");
+
     cleanupSkraprFiles();
+    console.log("starting phantomjs...");
 
     childProcess.execFile(binPath, childArgs, function (err, stdout, stderr) {
         if (err) {
-            if (fs.existsSync(skraprConfig.errorPath)) {
-                var error = fs.readFileSync(skraprConfig.errorPath, "utf8");
+            if (fs.existsSync(skraprConfig.outputPath)) {
+                var output = fs.readFileSync(skraprConfig.outputPath, "utf8");
+                output = JSON.parse(output);
                 console.log(stdout);
                 console.log(stderr);
-                console.log(error);
+                console.log(output.log);
                 console.log(err);
             } else {
                 console.log(stdout);
@@ -169,6 +161,8 @@ async.whilst(
 
         //Invoke PhantomJS.
         invokePhantomJS(function() {
+            //Load and parse results and feed to couchdb.
+
             console.log("Waiting...");
             setTimeout(callback, 5000);
         });

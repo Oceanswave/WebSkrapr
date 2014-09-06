@@ -2,6 +2,5 @@
 **/.idea/tasks.xml
 **/node_modules
 /config/skraprHiddenConfig.js
-results_data.json
-results_links.json
 skraprInput.json
+skraprOutput.json

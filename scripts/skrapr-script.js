@@ -5,10 +5,32 @@ phantom.injectJs(phantom.casperPath + '/bin/bootstrap.js');
 var fs = require('fs');
 var utils = require("utils");
 
+var skraprOutput = {
+    data: [],
+    links: [],
+    log: []
+};
+
+var writeSkraprOutput = function() {
+    var txt = JSON.stringify(skraprOutput, null, 4);
+    fs.write(skraprConfig.outputPath, txt);
+};
+
+var addLogEntry = function(message, severity) {
+    if (utils.isUndefined(severity))
+        severity = "info";
+
+    skraprOutput.log.push({
+        date: new Date().toISOString(),
+        severity: severity,
+        message: message
+    })
+};
 
 //load the target from file.
 if (!fs.exists(skraprConfig.inputPath)) {
-    fs.write("skrapr_errors.json", "Unable to locate " + skraprConfig.inputPath, 'w');
+    addLogEntry("Unable to locate " + skraprConfig.inputPath, "Catastrophic");
+    writeSkraprOutput();
     phantom.exit(1);
 } else {
     var skrapr = fs.read(skraprConfig.inputPath);
@@ -40,12 +62,6 @@ var casper = require('casper').create({
     logLevel: "info",
     verbose: true
 });
-
-//Write out data and links when casper finishes...
-var results = {
-    data: [],
-    links: []
-};
 
 //Set the useragent if defined by the skrapr.
 if (typeof (skrapr.userAgent) !== "undefined")
@@ -108,10 +124,10 @@ if (utils.isArray(skrapr.targets)) {
                     var data = this.evaluate(target.script);
                     if (utils.isArray(data)) {
                         data.forEach(function (d) {
-                            results.data.push(d);
+                            skraprOutput.data.push(d);
                         });
                     } else if (utils.isObject(data)) {
-                        results.data.push(data);
+                        skraprOutput.data.push(data);
                     }
                         
                 }
@@ -120,10 +136,10 @@ if (utils.isArray(skrapr.targets)) {
                     var links = this.evaluate(target.links);
                     if (utils.isArray(links)) {
                         links.forEach(function (l) {
-                            results.links.push(l);
+                            skraprOutput.links.push(l);
                         });
                     } else if (utils.isObject(links)) {
-                        results.links.push(links);
+                        skraprOutput.links.push(links);
                     }
                 }
             }
@@ -132,7 +148,6 @@ if (utils.isArray(skrapr.targets)) {
 }
 
 casper.run(function () {
-    fs.write(skraprConfig.dataPath, JSON.stringify(results.data, null, 4));
-    fs.write(skraprConfig.linksPath, JSON.stringify(results.links, null, 4));
+    writeSkraprOutput();
     this.exit();
 });
