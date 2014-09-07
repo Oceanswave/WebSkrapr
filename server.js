@@ -1,8 +1,11 @@
 ﻿var AWS = require('aws-sdk');
 var fs = require("fs");
 var async = require('async');
+var cradle = require('cradle');
 var path = require('path');
 var skraprConfig = require("./config/skraprConfig.js");
+var JSONfn = require("./libs/JSONfn").JSONfn;
+
 
 var skrapr = {
     startUrls: [
@@ -20,24 +23,27 @@ var skrapr = {
                 url: "^http://gatherer.wizards.com/Pages/Search/Default\.aspx\?.*output=compact.*",
                 mimeType: "text/html.*"
             },
-            script: "function() { \
-var result = []; \
-jQuery('div.cardList > table.compact > tbody > tr.cardItem') \
-    .each(function (i, value) { \
-    \
-    var cardInfo = { \
-        name: '', \
-        url: '', \
-    }; \
-    \
-    var nameAnchor = jQuery(value).find('td.name > a').first(); \
-    cardInfo.name = nameAnchor.text(); \
-    cardInfo.url = URI(nameAnchor.attr('href')).absoluteTo(window.location.href).toString(); \
-    \
-    result.push(cardInfo); \
-}); \
-return result; \
-}",
+            script: function() {
+                var result = [];
+                jQuery('div.cardList > table.compact > tbody > tr.cardItem')
+                    .each(function (i, value) {
+
+                        var cardInfo = {
+                            _id: null,
+                            name: '',
+                            url: ''
+                        };
+
+                        var nameAnchor = jQuery(value).find('td.name > a').first();
+                        var uri = URI(nameAnchor.attr('href'));
+                        cardInfo._id = uri.search(true)['multiverseid'];
+                        cardInfo.name = nameAnchor.text();
+                        cardInfo.url = uri.absoluteTo(window.location.href).toString();
+
+                        result.push(cardInfo);
+                    });
+                return result;
+            },
 links: "function() { \
 var currentPage = jQuery('div.contentcontainer > div.smallGreyBorder > div.paging.bottom > div.pagingcontrols > a').first().attr('href'); \
 var currentPageNumber = URI(currentPage).search(true)['page']; \
@@ -100,7 +106,19 @@ var cleanupSkraprFiles = function () {
         fs.unlinkSync(skraprConfig.outputPath);
 };
 
-AWS.config.region = 'us-east-1';
+var initializeCouchDb = function() {
+    cradle.setup({
+        host: process.env["Skrapr_CouchDB_Host"],
+        port: process.env["Skrapr_CouchDB_Port"],
+        auth: {
+            username: process.env["Skrapr_CouchDB_Key"],
+            password: process.env["Skrapr_CouchDB_Password"]
+        },
+        cache: true,
+        raw: false,
+        forceSave: true
+    });
+};
 
 var invokePhantomJS = function (callback) {
     var childProcess = require('child_process');
@@ -145,6 +163,9 @@ var invokePhantomJS = function (callback) {
 
 var die = false;
 
+/* Main Entry Point */
+initializeCouchDb();
+
 //Add a log entry that indicates this worker is ready...
 async.whilst(
     function () {
@@ -156,20 +177,70 @@ async.whilst(
         //Get skrapr definition from couchdb.
 
         //save the skrapr to target.json
-        var skraprJson = JSON.stringify(skrapr, null, 4);
+        var skraprJson = JSONfn.stringify(skrapr, null, 4);
         fs.writeFileSync(skraprConfig.inputPath, skraprJson);
 
         //Invoke PhantomJS.
         invokePhantomJS(function() {
-            //Load and parse results and feed to couchdb.
 
-            console.log("Waiting...");
-            setTimeout(callback, 5000);
+            //load the output file
+            var outputJson = fs.readFileSync(skraprConfig.outputPath);
+            var results = JSON.parse(outputJson);
+
+            // push logs/data to CouchDB.
+            var db = new(cradle.Connection)().database(process.env["Skrapr_CouchDB_Database"]);
+
+            async.waterfall([
+                function(callback) {
+                    db.exists(function (err, exists) {
+                        if (err) {
+                            console.log('error', err);
+                        } else if (exists) {
+                            console.log('the force is with you.');
+
+
+                            /*db.all(function (err, res) {
+                                res.forEach(function (value) {
+                                    db.remove(this.id, value.rev, function (err, res) {
+                                        //Handle response
+                                    });
+                                    console.log("%s is on the %s side of the force.", this.id, this.key);
+                                });
+                            });*/
+
+                            callback();
+
+                        } else {
+                            console.log('Database does not exist.');
+                            db.create();
+                            /* populate design documents */
+                        }
+                    });
+                },
+                function(callback) {
+                    db.save(results.data, function (err, res) {
+                        // Handle response
+                        if (err != null) {
+                            console.log(err);
+                            //TODO: Log err to log...
+                        }
+                        else {
+                            console.log("Saved " + res.length + " results.");
+                            callback();
+                        }
+                    });
+                }
+            ], function(){
+                console.log("Waiting...");
+                setTimeout(callback, 5000);
+            });
+
         });
     },
     function (err) {
         //Shutdown.
         cleanupSkraprFiles();
         console.log(err);
+        console.log("All Done!")
     }
 );

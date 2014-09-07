@@ -1,4 +1,5 @@
 ﻿phantom.injectJs('./config/skraprConfig.js');
+phantom.injectJs('./libs/jsonfn.js');
 phantom.casperPath = './node_modules/casperjs';
 phantom.injectJs(phantom.casperPath + '/bin/bootstrap.js');
 
@@ -34,7 +35,7 @@ if (!fs.exists(skraprConfig.inputPath)) {
     phantom.exit(1);
 } else {
     var skrapr = fs.read(skraprConfig.inputPath);
-    skrapr = JSON.parse(skrapr);
+    skrapr = JSONfn.parse(skrapr);
 }
 
 var clientScripts = [
@@ -62,6 +63,21 @@ var casper = require('casper').create({
     logLevel: "info",
     verbose: true
 });
+
+var tryCatchDataFunc = function(getDataScript) {
+    var result = {
+        data: null,
+        error: null
+    };
+
+    try {
+        result.data = getDataScript();
+    }
+    catch(err) {
+        result.error = err;
+    }
+    return result;
+};
 
 //Set the useragent if defined by the skrapr.
 if (typeof (skrapr.userAgent) !== "undefined")
@@ -120,27 +136,41 @@ if (utils.isArray(skrapr.targets)) {
             var currentUrl = this.getCurrentUrl();
 
             if (mimeTypeRegex.test(currentMimeType) && urlRegex.test(currentUrl)) {
-                if (utils.isString(target.script)) {
-                    var data = this.evaluate(target.script);
-                    if (utils.isArray(data)) {
-                        data.forEach(function (d) {
-                            skraprOutput.data.push(d);
-                        });
-                    } else if (utils.isObject(data)) {
-                        skraprOutput.data.push(data);
+                if (utils.isFunction(target.script)) {
+                    var result = this.evaluate(tryCatchDataFunc, target.script);
+
+                    //It's interesting that a null error gets serialized as an empty string...
+                    if (result.error == "") {
+                        if (utils.isArray(result.data)) {
+                            result.data.forEach(function (d) {
+                                skraprOutput.data.push(d);
+                            });
+                        } else if (utils.isObject(result.data)) {
+                            skraprOutput.data.push(result.data);
+                        }
                     }
-                        
+                    else {
+                        //TODO: Add this to zee error log.
+                        this.log(result.error, "error");
+                    }
                 }
 
-                if (utils.isString(target.links)) {
-                    var links = this.evaluate(target.links);
-                    if (utils.isArray(links)) {
-                        links.forEach(function (l) {
-                            skraprOutput.links.push(l);
-                        });
-                    } else if (utils.isObject(links)) {
-                        skraprOutput.links.push(links);
+                if (utils.isFunction(target.links)) {
+                    var links = this.evaluate(tryCatchDataFunc, target.links);
+
+                    if (links.error == "") {
+                        if (utils.isArray(links.data)) {
+                            links.data.forEach(function (l) {
+                                skraprOutput.links.push(l);
+                            });
+                        } else if (utils.isObject(links)) {
+                            skraprOutput.links.push(links.data);
+                        }
+                    } else {
+                        //TODO: Add this to zee error log.
+                        this.log(links.error, "error");
                     }
+
                 }
             }
         });
