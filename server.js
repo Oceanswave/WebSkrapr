@@ -17,10 +17,10 @@ var async = require('async');
 var cradle = require('cradle');
 var path = require('path');
 var skraprConfig = require("./config/skraprConfig.js");
-var JSONfn = require("./libs/JSONfn").JSONfn;
+var JSONfn = require("./lib/JSONfn").JSONfn;
 
 
-var skrapr = {
+var _skrapr = {
     startUrls: [
         "http://gatherer.wizards.com/Pages/Search/Default.aspx?output=compact&color=|[B]",
         "http://gatherer.wizards.com/Pages/Search/Default.aspx?output=compact&color=|[U]",
@@ -57,18 +57,21 @@ var skrapr = {
                     });
                 return result;
             },
-links: "function() { \
-var currentPage = jQuery('div.contentcontainer > div.smallGreyBorder > div.paging.bottom > div.pagingcontrols > a').first().attr('href'); \
-var currentPageNumber = URI(currentPage).search(true)['page']; \
-var maxPages = jQuery('div.contentcontainer > div.smallGreyBorder > div.paging.bottom > div.pagingcontrols > a').last().attr('href'); \
-var maxPageNumber =  URI(maxPages).search(true)['page']; \
-var result = []; \
-if (currentPageNumber == 0) { \
-    for (var i = 1; i <= maxPageNumber; i++) \
-        result.push(URI(currentPage).search(function(data) { data['page'] = i; }).absoluteTo(window.location.href).toString()); \
-} \
-return result; \
-}"
+            links: function() {
+                var currentPage = jQuery('div.contentcontainer > div.smallGreyBorder > div.paging.bottom > div.pagingcontrols > a').first().attr('href');
+                var currentPageNumber = URI(currentPage).search(true)['page'];
+                var maxPages = jQuery('div.contentcontainer > div.smallGreyBorder > div.paging.bottom > div.pagingcontrols > a').last().attr('href');
+                var maxPageNumber = URI(maxPages).search(true)['page'];
+                var result = [];
+                if (currentPageNumber == 0) {
+                    for (var i = 1; i <= maxPageNumber; i++) {
+                        result.push(URI(currentPage).search(function (data) {
+                            data['page'] = i;
+                        }).absoluteTo(window.location.href).toString());
+                    }
+                }
+                return result;
+            }
         }
     ]
 };
@@ -119,7 +122,8 @@ var cleanupSkraprFiles = function () {
         fs.unlinkSync(skraprConfig.outputPath);
 };
 
-var initializeCouchDb = function() {
+var setupCouchDb = function() {
+    console.log("Setting up CouchDB...");
     cradle.setup({
         host: process.env["Skrapr_CouchDB_Host"],
         port: process.env["Skrapr_CouchDB_Port"],
@@ -133,12 +137,51 @@ var initializeCouchDb = function() {
     });
 };
 
+var initializeDb = function(projectId, callback) {
+    console.log("Initializing db for project: " + projectId);
+
+    async.waterfall([
+        function(callback) {
+            //TODO: Instead of getting this from the env, create/new up a db from the Skrapr Project.
+            var db = new(cradle.Connection)().database(process.env["Skrapr_CouchDB_Database"]);
+
+            db.exists(function (err, exists) {
+                if (err) {
+                    console.log('error', err);
+                } else if (exists) {
+                    console.log('Project Database exists.');
+
+                    /*db.all(function (err, res) {
+                     res.forEach(function (value) {
+                     db.remove(this.id, value.rev, function (err, res) {
+                     //Handle response
+                     });
+                     console.log("%s is on the %s side of the force.", this.id, this.key);
+                     });
+                     });*/
+
+                    callback(null, db);
+                } else {
+                    console.log('Project Database does not exist.');
+                    db.create();
+                    /* populate design documents */
+                }
+            });
+        }
+    ], function(err, db) {
+        if (err) throw err;
+
+        if (typeof callback === "function")
+            callback(db); //
+    });
+};
+
 var invokePhantomJS = function (callback) {
     var childProcess = require('child_process');
-    var phantomjs = require('phantomjs');
+    var phantomJS = require('phantomjs');
 
-    var binPath = phantomjs.path;
-    
+    var binPath = phantomJS.path;
+
     var childArgs = [
         "--load-images=false",
         "--ignore-ssl-errors=true",
@@ -150,7 +193,7 @@ var invokePhantomJS = function (callback) {
     ];
 
     cleanupSkraprFiles();
-    console.log("starting phantomjs...");
+    console.log("Starting PhantomJS...");
 
     childProcess.execFile(binPath, childArgs, function (err, stdout, stderr) {
         if (err) {
@@ -174,85 +217,113 @@ var invokePhantomJS = function (callback) {
     });
 };
 
-var die = false;
+var saveResults = function(project, callback) {
+    console.log("Saving results...");
+
+    async.waterfall([
+        //load the output file
+        function(callback) {
+            fs.readFile(skraprConfig.outputPath, function(err, outputJson){
+                if (err) throw err;
+                var results = JSON.parse(outputJson);
+                callback(null, results);
+            });
+        },
+        //Initialize the DB based on the project.
+        function (results, callback) {
+            initializeDb("tototo", function(db) {
+                callback(null, db, results);
+            });
+        },
+        function(db, results, callback) {
+            if (db == null) {
+                throw "DB was null.";
+            }
+
+            if (results == null) {
+                throw "Results were null.";
+            }
+
+            db.save(results.data, function (err, res) {
+                // Handle response
+                if (err != null) {
+                    console.log(err);
+                    //TODO: Log err to log...
+                }
+                else {
+                    console.log("Saved " + res.length + " results.");
+                    callback();
+                }
+            });
+        }
+    ], callback);
+};
 
 /* Main Entry Point */
-initializeCouchDb();
+var die = false;
+
+setupCouchDb();
 
 //Add a log entry that indicates this worker is ready...
 async.whilst(
     function () {
         return !die;
     },
-    function (callback) {
-        //Monitor configured AWS SQS queue for a new target url. The queued item should contain the account/project/skrapr
-    
-        //Get skrapr definition from couchdb.
+    function (loop) {
+        async.waterfall([
+            //Monitor configured AWS SQS queue for a new target url. The queued item should contain the account/project/skrapr
+            function(callback) {
+                //TODO: Finish this.
 
-        //save the skrapr to target.json
-        var skraprJson = JSONfn.stringify(skrapr, null, 4);
-        fs.writeFileSync(skraprConfig.inputPath, skraprJson);
+                callback();
+            },
+            //Get skrapr project definition from CouchDB.
+            function(callback) {
+                //TODO: Finish this.
+                var project = {
+                    name: "test12345"
+                };
 
-        //Invoke PhantomJS.
-        invokePhantomJS(function() {
+                var skrapr = _skrapr;
 
-            //load the output file
-            var outputJson = fs.readFileSync(skraprConfig.outputPath);
-            var results = JSON.parse(outputJson);
-
-            // push logs/data to CouchDB.
-            var db = new(cradle.Connection)().database(process.env["Skrapr_CouchDB_Database"]);
-
-            async.waterfall([
-                function(callback) {
-                    db.exists(function (err, exists) {
-                        if (err) {
-                            console.log('error', err);
-                        } else if (exists) {
-                            console.log('the force is with you.');
-
-
-                            /*db.all(function (err, res) {
-                                res.forEach(function (value) {
-                                    db.remove(this.id, value.rev, function (err, res) {
-                                        //Handle response
-                                    });
-                                    console.log("%s is on the %s side of the force.", this.id, this.key);
-                                });
-                            });*/
-
-                            callback();
-
-                        } else {
-                            console.log('Database does not exist.');
-                            db.create();
-                            /* populate design documents */
-                        }
-                    });
-                },
-                function(callback) {
-                    db.save(results.data, function (err, res) {
-                        // Handle response
-                        if (err != null) {
-                            console.log(err);
-                            //TODO: Log err to log...
-                        }
-                        else {
-                            console.log("Saved " + res.length + " results.");
-                            callback();
-                        }
-                    });
+                callback(null, project, skrapr);
+            },
+            //save skrapr to target.json
+            function(project, skrapr, callback) {
+                if (skrapr == null) {
+                    console.log("Skrapr was null!");
+                    return;
                 }
-            ], function(){
-                console.log("Waiting...");
-                setTimeout(callback, 5000);
-            });
 
+                var skraprJson = JSONfn.stringify(skrapr, null, 4);
+
+                fs.writeFile(skraprConfig.inputPath, skraprJson, null, function(err) {
+                    if (err) throw err;
+                    callback(null, project, skrapr)
+                });
+            },
+            //Invoke PhantomJS.
+            function(project, skrapr, callback) {
+                invokePhantomJS(function() {
+                    callback(null, project, skrapr);
+                })
+            },
+            //Push Logs/Data to CouchDB.
+            function(project, skrapr, callback) {
+                saveResults(project, function() {
+                    callback();
+                });
+            }
+        ], function() {
+            //Loop...
+            console.log("Waiting...");
+            setTimeout(loop, 5000);
         });
     },
     function (err) {
         //Shutdown.
         cleanupSkraprFiles();
+
         console.log(err);
         console.log("All Done!")
     }

@@ -1,5 +1,6 @@
 ﻿phantom.injectJs('./config/skraprConfig.js');
-phantom.injectJs('./libs/jsonfn.js');
+phantom.injectJs('./lib/jsonfn.js');
+phantom.injectJs('./node_modules/async/lib/async.js');
 phantom.casperPath = './node_modules/casperjs';
 phantom.injectJs(phantom.casperPath + '/bin/bootstrap.js');
 
@@ -150,8 +151,7 @@ if (utils.isArray(skrapr.targets)) {
                         }
                     }
                     else {
-                        //TODO: Add this to zee error log.
-                        this.log(result.error, "error");
+                        addLogEntry(result.error, "error");
                     }
                 }
 
@@ -167,8 +167,7 @@ if (utils.isArray(skrapr.targets)) {
                             skraprOutput.links.push(links.data);
                         }
                     } else {
-                        //TODO: Add this to zee error log.
-                        this.log(links.error, "error");
+                        addLogEntry(links.error, "error");
                     }
 
                 }
