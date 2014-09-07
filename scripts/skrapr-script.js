@@ -133,6 +133,12 @@ if (utils.isArray(skrapr.targets)) {
         var urlRegex = new RegExp(target.pattern.url);
 
         casper.then(function (response) {
+            if (response == undefined || response.status >= 400)
+            {
+                this.log("Error retrieving Url: " + this.getCurrentUrl(), "error");
+                return;
+            }
+
             var currentMimeType = response.headers.get('content-type');
             var currentUrl = this.getCurrentUrl();
 

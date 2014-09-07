@@ -217,25 +217,17 @@ var invokePhantomJS = function (callback) {
     });
 };
 
-var saveResults = function(project, callback) {
+var saveResults = function(project, results, callback) {
     console.log("Saving results...");
 
     async.waterfall([
-        //load the output file
-        function(callback) {
-            fs.readFile(skraprConfig.outputPath, function(err, outputJson){
-                if (err) throw err;
-                var results = JSON.parse(outputJson);
-                callback(null, results);
-            });
-        },
         //Initialize the DB based on the project.
-        function (results, callback) {
-            initializeDb("tototo", function(db) {
-                callback(null, db, results);
+        function (callback) {
+            initializeDb(project._id, function(db) {
+                callback(null, db);
             });
         },
-        function(db, results, callback) {
+        function(db, callback) {
             if (db == null) {
                 throw "DB was null.";
             }
@@ -271,7 +263,7 @@ async.whilst(
     },
     function (loop) {
         async.waterfall([
-            //Monitor configured AWS SQS queue for a new target url. The queued item should contain the account/project/skrapr
+            //Monitor configured AWS SQS queue for a new target url. The queued item should contain the account/project/skrapr/correlationid
             function(callback) {
                 //TODO: Finish this.
 
@@ -281,6 +273,7 @@ async.whilst(
             function(callback) {
                 //TODO: Finish this.
                 var project = {
+                    _id: "test12345",
                     name: "test12345"
                 };
 
@@ -308,11 +301,28 @@ async.whilst(
                     callback(null, project, skrapr);
                 })
             },
-            //Push Logs/Data to CouchDB.
+            //Load results from SkraprOutput
             function(project, skrapr, callback) {
-                saveResults(project, function() {
-                    callback();
+                fs.readFile(skraprConfig.outputPath, function(err, outputJson){
+                    if (err) throw err;
+                    var results = JSON.parse(outputJson);
+                    callback(null, project, skrapr, results);
                 });
+            },
+            //Push Logs/Data to CouchDB.
+            function(project, skrapr, results, callback) {
+                saveResults(project, results, function() {
+                    callback(null, project, skrapr, results);
+                });
+            },
+            //Enqueue new links to AWS queue.
+            function(project, skrapr, results, callback) {
+
+                results.links.forEach(function(link){
+                    console.log("Adding " + link + " to queue...");
+                    //TODO: Finish this.
+                });
+                callback();
             }
         ], function() {
             //Loop...
