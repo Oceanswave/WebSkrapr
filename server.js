@@ -1,4 +1,17 @@
-﻿var AWS = require('aws-sdk');
+﻿/*
+WebSkrapr:
+
+Ensure the following environment variables are set:
+ Skrapr_CouchDB_Host: The address of the CouchDB to use.
+ Skrapr_CouchDB_Port: Port Number of CouchDB (E.g. 443 for SSL)
+ Skrapr_CouchDB_Key: The Username/Key of the account to use when connecting to couch
+ Skrapr_CouchDB_Password: The password of the account to use when connecting to couch
+ Skrapr_CouchDB_Database: Soon to be deprecated.
+
+ In WebStorm 8, these can be set in Run->Edit Configurations->Environment Variables
+ */
+
+var AWS = require('aws-sdk');
 var fs = require("fs");
 var async = require('async');
 var cradle = require('cradle');
